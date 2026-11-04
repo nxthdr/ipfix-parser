@@ -23,6 +23,8 @@ The IANA registries are machine-readable, so the Information Element table ([`sr
 | [IPFIX Set IDs](https://www.iana.org/assignments/ipfix/ipfix.xhtml#ipfix-set-ids) | `registry::TEMPLATE_SET_ID`, `OPTIONS_TEMPLATE_SET_ID`, `MIN_DATA_SET_ID` |
 | [IPFIX Version Numbers](https://www.iana.org/assignments/ipfix/ipfix.xhtml#ipfix-version-numbers) | `registry::IPFIX_VERSION` |
 
+The Information Elements of RFC 5610 type records (`informationElementId`, `privateEnterpriseNumber`, `informationElementDataType`, ...) are IANA elements, so they are covered by this validation. RFC 5610 defines no wire figure of its own: the type record is a regular Options Data Record.
+
 Registry rows that are not decodable Information Elements are skipped: ID ranges and "Reserved" / "Unassigned" / "Assigned for NetFlow v9 compatibility" placeholders, and ElementIDs 416 and 419. Those two were deprecated as duplicates of 352 and 353 and have no name or data type in the registry.
 
 When the validation fails because IANA changed, run:

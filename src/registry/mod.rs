@@ -89,6 +89,11 @@ impl DataType {
         DataType::Unsigned256,
     ];
 
+    /// The data type with this IANA registry value
+    pub fn from_value(value: u8) -> Option<DataType> {
+        DataType::ALL.get(value as usize).copied()
+    }
+
     /// The IANA name of the data type (e.g. `unsigned32`)
     pub fn name(&self) -> &'static str {
         match self {
@@ -180,6 +185,11 @@ impl DataTypeSemantics {
         DataTypeSemantics::SnmpCounter,
         DataTypeSemantics::SnmpGauge,
     ];
+
+    /// The semantics with this IANA registry value
+    pub fn from_value(value: u8) -> Option<DataTypeSemantics> {
+        DataTypeSemantics::ALL.get(value as usize).copied()
+    }
 
     /// The IANA name of the semantics (e.g. `deltaCounter`)
     pub fn name(&self) -> &'static str {

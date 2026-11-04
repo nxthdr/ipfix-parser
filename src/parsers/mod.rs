@@ -8,6 +8,7 @@
 //! never panics.
 
 mod decoder;
+mod elements;
 mod error;
 mod value;
 

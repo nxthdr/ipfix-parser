@@ -41,6 +41,7 @@
 //!   would be zero octets long is rejected. Otherwise every octet of a Data Set
 //!   would hold infinitely many zero-length records.
 
+use super::elements::ElementTable;
 use super::error::{ParseError, Result};
 use super::value::{decode_record, DecodeContext};
 use super::Cursor;
@@ -89,6 +90,10 @@ pub struct DecoderConfig {
     /// Maximum nesting depth of structured data (RFC 6313 lists). Deeper lists
     /// are kept as [`FieldValue::Raw`].
     pub max_list_depth: usize,
+    /// Maximum number of enterprise-specific Information Element definitions
+    /// learned from type records (RFC 5610), across all Observation Domains.
+    /// Further type records are ignored.
+    pub max_enterprise_elements: usize,
 }
 
 impl Default for DecoderConfig {
@@ -98,6 +103,7 @@ impl Default for DecoderConfig {
             template_lifetime: None,
             max_templates: 4096,
             max_list_depth: 8,
+            max_enterprise_elements: 4096,
         }
     }
 }
@@ -152,6 +158,8 @@ pub(crate) type TemplateCache = HashMap<(u32, u16), Template>;
 pub struct Decoder {
     config: DecoderConfig,
     templates: TemplateCache,
+    /// Enterprise-specific Information Element definitions (RFC 5610)
+    elements: ElementTable,
     /// Export Time of the last expiry sweep (sweeps run at most once per
     /// second of Export Time)
     last_sweep: Option<u32>,
@@ -168,6 +176,7 @@ impl Decoder {
         Self {
             config,
             templates: HashMap::new(),
+            elements: ElementTable::default(),
             last_sweep: None,
         }
     }
@@ -209,15 +218,75 @@ impl Decoder {
         }
     }
 
-    /// Remove all Templates (e.g. at the end of the Transport Session)
-    pub fn clear(&mut self) {
-        self.templates.clear();
+    /// Register the definition of an enterprise-specific Information Element
+    /// (e.g. from vendor documentation), so that its fields are decoded with
+    /// its data type instead of being kept as [`FieldValue::Raw`].
+    ///
+    /// Registered definitions apply to all Observation Domains, survive
+    /// [`clear`](Self::clear), and always take precedence over type records
+    /// sent by the Exporter (RFC 5610 Section 3.9). Registering the same
+    /// element again replaces the definition. Fails for reverse elements
+    /// (PEN 29305) and for IANA elements already in the registry.
+    pub fn register_enterprise_element(&mut self, element: EnterpriseElement) -> Result<()> {
+        self.elements.register(element)
     }
 
-    /// Remove all Templates of an Observation Domain
+    /// The definition of an enterprise-specific Information Element: the
+    /// registered one, or else the one learned from type records (RFC 5610)
+    /// in this Observation Domain. With `enterprise_number` 0, the definition
+    /// of an IANA element newer than the registry.
+    pub fn enterprise_element(
+        &self,
+        observation_domain_id: u32,
+        enterprise_number: u32,
+        id: u16,
+    ) -> Option<&EnterpriseElement> {
+        self.elements
+            .get(observation_domain_id, enterprise_number, id)
+    }
+
+    /// Number of enterprise-specific Information Element definitions learned
+    /// from type records (RFC 5610), excluding conflicting ones
+    pub fn learned_element_count(&self) -> usize {
+        self.elements.learned_count()
+    }
+
+    /// The name of a field's Information Element: the IANA name (forward name
+    /// for reverse elements), or the name of its enterprise-specific
+    /// definition
+    pub fn field_name(
+        &self,
+        observation_domain_id: u32,
+        specifier: &FieldSpecifier,
+    ) -> Option<&str> {
+        if let Some(ie) = specifier.information_element() {
+            return Some(ie.name);
+        }
+        let pen = match specifier.enterprise_number {
+            None | Some(crate::registry::REVERSE_INFORMATION_ELEMENT_PEN) => 0,
+            Some(pen) => pen,
+        };
+        self.elements
+            .get(
+                observation_domain_id,
+                pen,
+                specifier.information_element_identifier,
+            )
+            .and_then(|e| e.name.as_deref())
+    }
+
+    /// Remove all Templates and learned type records (e.g. at the end of the
+    /// Transport Session). Registered definitions are kept.
+    pub fn clear(&mut self) {
+        self.templates.clear();
+        self.elements.clear_learned();
+    }
+
+    /// Remove all Templates and learned type records of an Observation Domain
     pub fn remove_observation_domain(&mut self, observation_domain_id: u32) {
         self.templates
             .retain(|(domain, _), _| *domain != observation_domain_id);
+        self.elements.remove_domain(observation_domain_id);
     }
 
     /// Decode one IPFIX Message, updating the Template cache.
@@ -287,6 +356,7 @@ impl Decoder {
                 Some(template) => {
                     let ctx = DecodeContext {
                         templates: &self.templates,
+                        elements: &self.elements,
                         observation_domain_id: domain,
                         max_depth: self.config.max_list_depth,
                     };
@@ -295,6 +365,12 @@ impl Decoder {
                     // smallest possible record: those are padding (RFC 7011 Section 3.3.1)
                     while content.remaining() >= template.min_record_length {
                         records.push(decode_record(&ctx, id, template, &mut content, 0)?);
+                    }
+                    // Information Element type records (RFC 5610) apply to the
+                    // following Data Sets
+                    for record in records.iter().filter(|r| r.scope_field_count > 0) {
+                        self.elements
+                            .learn(domain, record, self.config.max_enterprise_elements);
                     }
                     Ok(Set::Data { header, records })
                 }
