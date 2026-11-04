@@ -660,3 +660,65 @@ fn test_rfc5610_appendix_a_example() {
         Some("unionTCPFlags")
     );
 }
+
+#[test]
+fn test_type_record_without_optional_fields() {
+    // Only the Scope Fields and informationElementDataType are required: the
+    // semantics, units, range, name and description are optional
+    let mut record = VENDOR_PEN.to_be_bytes().to_vec();
+    record.extend_from_slice(&100u16.to_be_bytes());
+    record.push(2); // unsigned16
+    let mut decoder = Decoder::new();
+    decoder
+        .decode(
+            &MessageBuilder::new()
+                .options_template(
+                    TYPE_RECORD_TEMPLATE,
+                    2,
+                    &[(346, 4, None), (303, 2, None), (339, 1, None)],
+                )
+                .data(TYPE_RECORD_TEMPLATE, &record)
+                .build(),
+        )
+        .unwrap();
+    let element = decoder.enterprise_element(1, VENDOR_PEN, 100).unwrap();
+    assert_eq!(element.data_type, DataType::Unsigned16);
+    assert_eq!(element.semantics, None);
+    assert_eq!(element.name, None);
+    assert_eq!(element.units, None);
+}
+
+#[test]
+fn test_field_name() {
+    let mut decoder = Decoder::new();
+    decoder
+        .register_enterprise_element(EnterpriseElement::new(
+            0,
+            30000,
+            "futureElement",
+            DataType::Unsigned32,
+        ))
+        .unwrap();
+    let spec = |id, pen| ipfix_parser::FieldSpecifier {
+        information_element_identifier: id,
+        field_length: 4,
+        enterprise_number: pen,
+    };
+    // IANA element, and its reverse counterpart (forward name)
+    assert_eq!(
+        decoder.field_name(1, &spec(8, None)),
+        Some("sourceIPv4Address")
+    );
+    assert_eq!(
+        decoder.field_name(1, &spec(8, Some(29305))),
+        Some("sourceIPv4Address")
+    );
+    // IANA element newer than the registry, registered with PEN 0
+    assert_eq!(
+        decoder.field_name(1, &spec(30000, None)),
+        Some("futureElement")
+    );
+    // Unknown IANA and enterprise elements
+    assert_eq!(decoder.field_name(1, &spec(30001, None)), None);
+    assert_eq!(decoder.field_name(1, &spec(1, Some(VENDOR_PEN))), None);
+}
