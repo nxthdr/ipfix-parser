@@ -165,8 +165,12 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@nightly
     
+    # The @cargo-fuzz shorthand tag passes no tool name ("no tool specified")
+    # and installs nothing, so name the tool explicitly
     - name: Install cargo-fuzz
-      uses: taiki-e/install-action@cargo-fuzz
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-fuzz
     
     - name: Run ${{ matrix.target }}
       run: cargo +nightly fuzz run --fuzz-dir tests/fuzz ${{ matrix.target }} -- -max_total_time=30 -rss_limit_mb=2048
