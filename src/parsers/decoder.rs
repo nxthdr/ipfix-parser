@@ -264,6 +264,8 @@ impl Decoder {
         }
         let pen = match specifier.enterprise_number {
             None | Some(crate::registry::REVERSE_INFORMATION_ELEMENT_PEN) => 0,
+            // PEN 0 with the Enterprise bit set is not an IANA element
+            Some(0) => return None,
             Some(pen) => pen,
         };
         self.elements

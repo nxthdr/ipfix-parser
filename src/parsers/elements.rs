@@ -27,6 +27,22 @@
 //! The learned table is bounded by [`DecoderConfig::max_enterprise_elements`]:
 //! further type records are ignored, as they only carry metadata.
 //!
+//! # Known Specification Errata
+//!
+//! - **RFC 5610 Errata 4731 (Appendix A):** the example Options Template Set
+//!   has a Length of 30 and a Field Count of 5. The unit test reproducing the
+//!   example uses the corrected values (and a Field Length of 65535 for the
+//!   variable-length name, see `tests/specs/SPEC_ISSUES.md`).
+//! - **RFC 5610 Errata 1822 (Section 3.7)** is editorial (units registry
+//!   policy) and does not affect parsing.
+//!
+//! # Deviation
+//!
+//! RFC 5610 Section 3.10 predates the structured data types (RFC 6313) and
+//! `unsigned256` (RFC 9740). [`EnterpriseElement::has_valid_semantics`]
+//! extends its restrictions: lists accept `default` and `list`, and
+//! `unsigned256` accepts any semantics like the other unsigned types.
+//!
 //! [`Decoder`]: super::Decoder
 //! [`Decoder::register_enterprise_element`]: super::Decoder::register_enterprise_element
 //! [`DecoderConfig::max_enterprise_elements`]: super::DecoderConfig::max_enterprise_elements
@@ -34,27 +50,9 @@
 
 use super::error::{ParseError, Result};
 use crate::models::*;
+use crate::registry::type_records::*;
 use crate::registry::{self, DataType, DataTypeSemantics, REVERSE_INFORMATION_ELEMENT_PEN};
 use std::collections::HashMap;
-
-/// `informationElementId` (RFC 5477)
-pub(crate) const INFORMATION_ELEMENT_ID: u16 = 303;
-/// `privateEnterpriseNumber` (RFC 5610 Section 3.8)
-pub(crate) const PRIVATE_ENTERPRISE_NUMBER: u16 = 346;
-/// `informationElementDataType` (RFC 5610 Section 3.1)
-pub(crate) const INFORMATION_ELEMENT_DATA_TYPE: u16 = 339;
-/// `informationElementDescription` (RFC 5610 Section 3.2)
-pub(crate) const INFORMATION_ELEMENT_DESCRIPTION: u16 = 340;
-/// `informationElementName` (RFC 5610 Section 3.3)
-pub(crate) const INFORMATION_ELEMENT_NAME: u16 = 341;
-/// `informationElementRangeBegin` (RFC 5610 Section 3.4)
-pub(crate) const INFORMATION_ELEMENT_RANGE_BEGIN: u16 = 342;
-/// `informationElementRangeEnd` (RFC 5610 Section 3.5)
-pub(crate) const INFORMATION_ELEMENT_RANGE_END: u16 = 343;
-/// `informationElementSemantics` (RFC 5610 Section 3.6)
-pub(crate) const INFORMATION_ELEMENT_SEMANTICS: u16 = 344;
-/// `informationElementUnits` (RFC 5610 Section 3.7)
-pub(crate) const INFORMATION_ELEMENT_UNITS: u16 = 345;
 
 /// A learned type record, or the marker of conflicting type records
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +115,9 @@ impl ElementTable {
             None | Some(REVERSE_INFORMATION_ELEMENT_PEN) => registry::lookup(id)
                 .map(|ie| ie.data_type)
                 .or_else(|| self.get(domain, 0, id).map(|e| e.data_type)),
+            // PEN 0 is reserved: with the Enterprise bit set, the field is
+            // neither an IANA element nor a known enterprise element
+            Some(0) => None,
             Some(pen) => self.get(domain, pen, id).map(|e| e.data_type),
         }
     }

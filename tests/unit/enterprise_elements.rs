@@ -497,3 +497,166 @@ fn test_data_type_and_semantics_from_value() {
     );
     assert_eq!(DataTypeSemantics::from_value(9), None);
 }
+
+#[test]
+fn test_enterprise_bit_with_pen_zero_is_not_iana() {
+    // PEN 0 is reserved: a field with the Enterprise bit set and PEN 0 is
+    // neither an IANA element nor a match for PEN 0 definitions (which
+    // describe IANA elements newer than the registry, sent without the
+    // Enterprise bit)
+    let mut decoder = Decoder::new();
+    decoder
+        .register_enterprise_element(EnterpriseElement::new(
+            0,
+            30000,
+            "futureElement",
+            DataType::Unsigned32,
+        ))
+        .unwrap();
+    assert_eq!(
+        decode_field(&mut decoder, (30000, 4, Some(0)), &[0, 0, 0, 7]),
+        FieldValue::Raw(vec![0, 0, 0, 7])
+    );
+    // sourceIPv4Address with the Enterprise bit and PEN 0
+    assert_eq!(
+        decode_field(&mut decoder, (8, 4, Some(0)), &[192, 0, 2, 1]),
+        FieldValue::Raw(vec![192, 0, 2, 1])
+    );
+    let spec = ipfix_parser::FieldSpecifier {
+        information_element_identifier: 30000,
+        field_length: 4,
+        enterprise_number: Some(0),
+    };
+    assert_eq!(decoder.field_name(1, &spec), None);
+}
+
+#[test]
+fn test_semantics_restrictions_exhaustive() {
+    // RFC 5610 Section 3.10, for every data type it covers and every semantics
+    use DataType::*;
+    use DataTypeSemantics as S;
+    for data_type in DataType::ALL {
+        for semantics in DataTypeSemantics::ALL {
+            let expected = match data_type {
+                // "Any value is valid for unsigned"
+                Unsigned8 | Unsigned16 | Unsigned32 | Unsigned64 => true,
+                // "Any value except flags is valid for signed"
+                Signed8 | Signed16 | Signed32 | Signed64 => semantics != S::Flags,
+                // "Any value except identifier or flags is valid for floating-point"
+                Float32 | Float64 => !matches!(semantics, S::Identifier | S::Flags),
+                // "Only default is valid for all other" RFC 5610 data types
+                OctetArray | Boolean | MacAddress | String | DateTimeSeconds
+                | DateTimeMilliseconds | DateTimeMicroseconds | DateTimeNanoseconds
+                | Ipv4Address | Ipv6Address => semantics == S::Default,
+                // Data types defined after RFC 5610 (documented deviation)
+                Unsigned256 => true,
+                BasicList | SubTemplateList | SubTemplateMultiList => {
+                    matches!(semantics, S::Default | S::List)
+                }
+            };
+            let element =
+                EnterpriseElement::new(VENDOR_PEN, 1, "x", data_type).with_semantics(semantics);
+            assert_eq!(
+                element.has_valid_semantics(),
+                expected,
+                "{:?} with {:?}",
+                data_type,
+                semantics
+            );
+        }
+    }
+}
+
+/// Encode a Set
+fn set(set_id: u16, content: &[u8]) -> Vec<u8> {
+    let mut out = set_id.to_be_bytes().to_vec();
+    out.extend_from_slice(&((content.len() + 4) as u16).to_be_bytes());
+    out.extend_from_slice(content);
+    out
+}
+
+#[test]
+fn test_rfc5610_appendix_a_example() {
+    // The example of RFC 5610 Appendix A: initialTCPFlags (14) and
+    // unionTCPFlags (15) are enterprise-specific flags. The example leaves the
+    // Private Enterprise Number unspecified.
+    const PEN: u32 = 12345;
+    let mut message = MessageBuilder::new().build();
+
+    // Figure 1: Template with enterprise-specific IEs (Length = 52)
+    let mut template = vec![0x01, 0x00, 0x00, 0x09]; // Template ID 256, Field Count 9
+    for (id, length) in [(150u16, 4u16), (8, 4), (12, 4), (7, 2), (11, 2), (85, 4)] {
+        template.extend_from_slice(&id.to_be_bytes());
+        template.extend_from_slice(&length.to_be_bytes());
+    }
+    for id in [14u16, 15] {
+        template.extend_from_slice(&(id | 0x8000).to_be_bytes());
+        template.extend_from_slice(&1u16.to_be_bytes());
+        template.extend_from_slice(&PEN.to_be_bytes());
+    }
+    template.extend_from_slice(&[0x00, 0x04, 0x00, 0x01]); // protocolIdentifier
+    let template_set = set(2, &template);
+    assert_eq!(template_set.len(), 52);
+
+    // Figure 2: Information Element Type Options Template, with Errata 4731
+    // (Length = 30, Field Count = 5) and a variable-length name (65535, the
+    // figure says 65536)
+    let mut options = vec![0x01, 0x01, 0x00, 0x05, 0x00, 0x02]; // ID 257, 5 fields, 2 scope
+    for (id, length) in [(346u16, 4u16), (303, 2), (339, 1), (344, 1), (341, 65535)] {
+        options.extend_from_slice(&id.to_be_bytes());
+        options.extend_from_slice(&length.to_be_bytes());
+    }
+    let options_set = set(3, &options);
+    assert_eq!(options_set.len(), 30);
+
+    // The two type records (Length = 50)
+    let mut records = Vec::new();
+    for (id, name) in [(14u16, "initialTCPFlags"), (15, "unionTCPFlags")] {
+        records.extend_from_slice(&PEN.to_be_bytes());
+        records.extend_from_slice(&id.to_be_bytes());
+        records.extend_from_slice(&[0x01, 0x05]); // unsigned8, flags
+        records.extend_from_slice(&varlen(name.as_bytes()));
+    }
+    let type_record_set = set(257, &records);
+    assert_eq!(type_record_set.len(), 50);
+
+    // A flow described by Template 256: SYN first, then SYN|ACK|FIN union
+    let mut flow = Vec::new();
+    flow.extend_from_slice(&1_700_000_000u32.to_be_bytes());
+    flow.extend_from_slice(&[192, 0, 2, 1, 192, 0, 2, 2]);
+    flow.extend_from_slice(&[0xC0, 0x00, 0x00, 0x50]);
+    flow.extend_from_slice(&1500u32.to_be_bytes());
+    flow.extend_from_slice(&[0x02, 0x13, 0x06]);
+
+    for s in [template_set, options_set, type_record_set, set(256, &flow)] {
+        message.extend(s);
+    }
+    let length = message.len() as u16;
+    message[2..4].copy_from_slice(&length.to_be_bytes());
+
+    let mut decoder = Decoder::new();
+    let decoded = decoder.decode(&message).unwrap();
+    assert_eq!(decoder.learned_element_count(), 2);
+
+    let element = decoder.enterprise_element(1, PEN, 14).unwrap();
+    assert_eq!(element.name.as_deref(), Some("initialTCPFlags"));
+    assert_eq!(element.data_type, DataType::Unsigned8);
+    assert_eq!(element.semantics, Some(DataTypeSemantics::Flags));
+
+    let flow = decoded
+        .data_records()
+        .find(|r| r.template_id == 256)
+        .unwrap();
+    assert_eq!(
+        flow.get_by_id(14, Some(PEN)),
+        Some(&FieldValue::Unsigned(0x02))
+    );
+    assert_eq!(
+        flow.get_by_id(15, Some(PEN)),
+        Some(&FieldValue::Unsigned(0x13))
+    );
+    assert_eq!(
+        decoder.field_name(1, &flow.fields[7].specifier),
+        Some("unionTCPFlags")
+    );
+}

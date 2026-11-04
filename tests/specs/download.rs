@@ -14,7 +14,7 @@ pub struct SpecDocument {
     pub immutable: bool,
 }
 
-/// RFCs whose wire structures are implemented in `src/models`
+/// RFCs validated against the implementation (wire structures and tables)
 pub const RFC_SPECS: &[SpecDocument] = &[
     SpecDocument {
         name: "rfc7011",
@@ -24,6 +24,11 @@ pub const RFC_SPECS: &[SpecDocument] = &[
     SpecDocument {
         name: "rfc6313",
         url: "https://www.rfc-editor.org/rfc/rfc6313.txt",
+        immutable: true,
+    },
+    SpecDocument {
+        name: "rfc5610",
+        url: "https://www.rfc-editor.org/rfc/rfc5610.txt",
         immutable: true,
     },
 ];

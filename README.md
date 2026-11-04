@@ -39,6 +39,7 @@ Each implemented wire structure is validated against the figures and field defin
 | [4396](https://www.rfc-editor.org/errata/eid4396) | RFC 7011 | The Sequence Number counts Data Records sent *before* the Message |
 | [7413](https://www.rfc-editor.org/errata/eid7413) | RFC 7011 | Templates describing zero-length Data Records are rejected |
 | [7875](https://www.rfc-editor.org/errata/eid7875) | RFC 7011 | Reduced-size signed integers are sign-extended |
+| [4731](https://www.rfc-editor.org/errata/eid4731) | RFC 5610 | Corrected Appendix A example (used as a unit test) |
 
 ### Message Structures
 
@@ -118,7 +119,7 @@ decoder.register_enterprise_element(
 // decoder.field_name(domain, &field.specifier) returns its name
 ```
 
-Type records follow the RFC's rules: they never replace a registered definition or an IANA element, an element with conflicting type records is ignored, invalid data type / semantics combinations ([§3.10](https://www.rfc-editor.org/rfc/rfc5610#section-3.10)) and names with NUL characters are ignored, and the learned table is bounded (`DecoderConfig::max_enterprise_elements`). Registering an element with PEN 0 also lets you decode IANA elements assigned after this crate's registry snapshot.
+The example of [RFC 5610 Appendix A](https://www.rfc-editor.org/rfc/rfc5610#appendix-A) is reproduced as a unit test. Type records follow the RFC's rules: they never replace a registered definition or an IANA element, an element with conflicting type records is ignored, invalid data type / semantics combinations ([§3.10](https://www.rfc-editor.org/rfc/rfc5610#section-3.10)) and names with NUL characters are ignored, and the learned table is bounded (`DecoderConfig::max_enterprise_elements`). Registering an element with PEN 0 also lets you decode IANA elements assigned after this crate's registry snapshot.
 
 Most vendors document their elements out-of-band rather than sending type records (none of the 13 vendor samples in the test suite do), so registration is usually what makes their fields decodable.
 

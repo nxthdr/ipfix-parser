@@ -2,12 +2,13 @@
 
 Automated validation tests that verify our Rust implementation against the [IANA IPFIX registries](https://www.iana.org/assignments/ipfix/ipfix.xhtml) and the IPFIX RFCs.
 
-**Status: ✅ 502/502 Information Elements, 24/24 data types, 8/8 RFC structures**
+**Status: ✅ 502/502 Information Elements, 24/24 data types, 8/8 RFC structures, 2/2 RFC tables**
 
 ## Components
 
 - **`iana_registry.rs`** - Generates the Information Element table from the IANA registry, and validates the table, data types, semantics, Set IDs and Version Number against IANA
 - **`rfc_structures.rs`** - Downloads the RFCs, extracts the packet diagrams and field definitions, and validates them against the implementation
+- **`rfc_tables.rs`** - Downloads RFC 5610 and validates its data type and type record tables against the implementation
 - **`rust_ast.rs`** - Parses Rust source files using `syn` to extract struct metadata (fields and doc comments)
 - **`download.rs`** - Downloads the documents into `cache/` (not committed)
 
@@ -23,7 +24,7 @@ The IANA registries are machine-readable, so the Information Element table ([`sr
 | [IPFIX Set IDs](https://www.iana.org/assignments/ipfix/ipfix.xhtml#ipfix-set-ids) | `registry::TEMPLATE_SET_ID`, `OPTIONS_TEMPLATE_SET_ID`, `MIN_DATA_SET_ID` |
 | [IPFIX Version Numbers](https://www.iana.org/assignments/ipfix/ipfix.xhtml#ipfix-version-numbers) | `registry::IPFIX_VERSION` |
 
-The Information Elements of RFC 5610 type records (`informationElementId`, `privateEnterpriseNumber`, `informationElementDataType`, ...) are IANA elements, so they are covered by this validation. RFC 5610 defines no wire figure of its own: the type record is a regular Options Data Record.
+The Information Elements of RFC 5610 type records (`informationElementId`, `privateEnterpriseNumber`, `informationElementDataType`, ...) are IANA elements, so they are covered by this validation.
 
 Registry rows that are not decodable Information Elements are skipped: ID ranges and "Reserved" / "Unassigned" / "Assigned for NetFlow v9 compatibility" placeholders, and ElementIDs 416 and 419. Those two were deprecated as duplicates of 352 and 353 and have no name or data type in the registry.
 
@@ -50,6 +51,15 @@ For each wire structure, the validation checks that:
 | RFC 6313 | Figure 1: basicList Encoding | `BasicList` | ✅ |
 | RFC 6313 | Figure 5: subTemplateList Encoding | `SubTemplateList` | ✅ |
 | RFC 6313 | Figure 8: subTemplateMultiList Encoding | `SubTemplateMultiList` + `SubTemplateMultiListEntry` | ✅ |
+
+## RFC Tables
+
+RFC 5610 defines no packet diagram of its own (a type record is a regular Options Data Record), but two tables the parser depends on are validated:
+
+| RFC | Table | Validated against | Status |
+|-----|-------|-------------------|--------|
+| RFC 5610 | Table 1: IE Data Type Values | `registry::DataType` | ✅ |
+| RFC 5610 | Table 4: IE Type Options (elements and Scope Fields) | `registry::type_records::{ELEMENTS, SCOPE_ELEMENTS}` | ✅ |
 
 Intentional deviations (for example, the Enterprise bit being represented by `enterprise_number.is_some()`) are declared per structure in `RFC_STRUCTURES`, each with a note explaining why.
 
