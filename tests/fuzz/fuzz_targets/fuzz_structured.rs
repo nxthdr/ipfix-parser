@@ -31,6 +31,10 @@ const INFORMATION_ELEMENTS: &[u16] = &[
     293, // subTemplateMultiList
 ];
 
+/// Private Enterprise Numbers of enterprise-specific fields, shared with the
+/// generated RFC 5610 type records so that learned types get used
+const ENTERPRISE_NUMBERS: &[u32] = &[1, 2];
+
 /// Field lengths: reduced sizes, native sizes, and variable-length
 const FIELD_LENGTHS: &[u16] = &[1, 2, 3, 4, 6, 8, 16, 32, 65535];
 
@@ -53,6 +57,7 @@ impl<'a> Arbitrary<'a> for FieldSpec {
         let enterprise_number = match u.int_in_range(0..=9)? {
             0 => Some(29305),
             1 => Some(u.arbitrary()?),
+            2 | 3 => Some(*u.choose(ENTERPRISE_NUMBERS)?),
             _ => None,
         };
         Ok(FieldSpec {
@@ -82,6 +87,41 @@ enum SetInput<'a> {
         template_id: u16,
         content: &'a [u8],
     },
+    /// RFC 5610 type record Options Template and one Data Set of type records
+    TypeRecords {
+        template_id: u16,
+        records: Vec<TypeRecord<'a>>,
+    },
+}
+
+/// An RFC 5610 Information Element type record
+#[derive(Debug)]
+struct TypeRecord<'a> {
+    enterprise_number: u32,
+    id: u16,
+    data_type: u8,
+    semantics: u8,
+    name: &'a [u8],
+}
+
+impl<'a> Arbitrary<'a> for TypeRecord<'a> {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        // PEN 0 (IANA) and 29305 (reverse) exercise the rejection rules
+        let enterprise_number = *u.choose(&[0, 1, 2, 29305])?;
+        let id = *u.choose(INFORMATION_ELEMENTS)?;
+        // Slightly beyond the registries, to reach unknown values
+        let data_type = u.int_in_range(0..=25)?;
+        let semantics = u.int_in_range(0..=10)?;
+        let len = u.int_in_range(0..=16)?;
+        let name = u.bytes(len.min(u.len()))?;
+        Ok(TypeRecord {
+            enterprise_number,
+            id,
+            data_type,
+            semantics,
+            name,
+        })
+    }
 }
 
 impl<'a> Arbitrary<'a> for SetInput<'a> {
@@ -90,7 +130,7 @@ impl<'a> Arbitrary<'a> for SetInput<'a> {
             let n = u.int_in_range(1..=6)?;
             (0..n).map(|_| u.arbitrary()).collect()
         };
-        Ok(match u.int_in_range(0..=5)? {
+        Ok(match u.int_in_range(0..=6)? {
             0 => SetInput::Template {
                 template_id: u.int_in_range(TEMPLATE_IDS)?,
                 fields: fields(u)?,
@@ -105,6 +145,15 @@ impl<'a> Arbitrary<'a> for SetInput<'a> {
                 // 2 and 3 are the "withdraw all" IDs
                 template_id: *u.choose(&[2, 3, 256, 257, 258])?,
             },
+            3 => {
+                let n = u.int_in_range(1..=4)?;
+                SetInput::TypeRecords {
+                    template_id: u.int_in_range(TEMPLATE_IDS)?,
+                    records: (0..n)
+                        .map(|_| u.arbitrary())
+                        .collect::<arbitrary::Result<_>>()?,
+                }
+            }
             _ => {
                 let len = u.int_in_range(0..=256)?;
                 SetInput::Data {
@@ -166,6 +215,40 @@ impl SetInput<'_> {
                 template_id,
                 content,
             } => (*template_id, content.to_vec()),
+            SetInput::TypeRecords {
+                template_id,
+                records,
+            } => {
+                // Options Template: privateEnterpriseNumber and
+                // informationElementId as Scope Fields, then
+                // informationElementDataType, informationElementSemantics and
+                // informationElementName (variable-length)
+                let mut out = Vec::new();
+                let mut template = template_id.to_be_bytes().to_vec();
+                template.extend_from_slice(&5u16.to_be_bytes()); // Field Count
+                template.extend_from_slice(&2u16.to_be_bytes()); // Scope Field Count
+                for (id, length) in [(346u16, 4u16), (303, 2), (339, 1), (344, 1), (341, 65535)] {
+                    template.extend_from_slice(&id.to_be_bytes());
+                    template.extend_from_slice(&length.to_be_bytes());
+                }
+                out.extend_from_slice(&3u16.to_be_bytes());
+                out.extend_from_slice(&((template.len() + 4) as u16).to_be_bytes());
+                out.extend_from_slice(&template);
+
+                let mut data = Vec::new();
+                for r in records {
+                    data.extend_from_slice(&r.enterprise_number.to_be_bytes());
+                    data.extend_from_slice(&r.id.to_be_bytes());
+                    data.push(r.data_type);
+                    data.push(r.semantics);
+                    data.push(r.name.len() as u8);
+                    data.extend_from_slice(r.name);
+                }
+                out.extend_from_slice(&template_id.to_be_bytes());
+                out.extend_from_slice(&((data.len() + 4) as u16).to_be_bytes());
+                out.extend_from_slice(&data);
+                return out;
+            }
         };
 
         let mut out = set_id.to_be_bytes().to_vec();

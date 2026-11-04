@@ -24,7 +24,7 @@ Each implemented wire structure is validated against the figures and field defin
 | Year | Specification | Description | Status |
 |------|--------------|-------------|--------|
 | 2008 | [RFC 5103](https://www.rfc-editor.org/rfc/rfc5103) | Bidirectional Flow Export (reverse Information Elements) | ✅ |
-| 2009 | [RFC 5610](https://www.rfc-editor.org/rfc/rfc5610) | Exporting Type Information for Enterprise-Specific Information Elements | ⬜ |
+| 2009 | [RFC 5610](https://www.rfc-editor.org/rfc/rfc5610) | Exporting Type Information for Enterprise-Specific Information Elements | ✅ |
 | 2009 | [RFC 5655](https://www.rfc-editor.org/rfc/rfc5655) | IPFIX File Format (reading) | ✅ |
 | 2011 | [RFC 6313](https://www.rfc-editor.org/rfc/rfc6313) | Export of Structured Data (basicList, subTemplateList, subTemplateMultiList) | ✅ |
 | 2013 | [RFC 7011](https://www.rfc-editor.org/rfc/rfc7011) | IPFIX Protocol: Messages, Sets, Templates, encodings | ✅ |
@@ -39,6 +39,7 @@ Each implemented wire structure is validated against the figures and field defin
 | [4396](https://www.rfc-editor.org/errata/eid4396) | RFC 7011 | The Sequence Number counts Data Records sent *before* the Message |
 | [7413](https://www.rfc-editor.org/errata/eid7413) | RFC 7011 | Templates describing zero-length Data Records are rejected |
 | [7875](https://www.rfc-editor.org/errata/eid7875) | RFC 7011 | Reduced-size signed integers are sign-extended |
+| [4731](https://www.rfc-editor.org/errata/eid4731) | RFC 5610 | Corrected Appendix A example (used as a unit test) |
 
 ### Message Structures
 
@@ -56,7 +57,7 @@ Each implemented wire structure is validated against the figures and field defin
 | Template lifetime over UDP ("Last Received") | [RFC 7011 §8.4](https://www.rfc-editor.org/rfc/rfc7011#section-8.4) | ✅ |
 | IPFIX File Reader (union of all transports' Template management) | [RFC 5655 §7.1](https://www.rfc-editor.org/rfc/rfc5655#section-7.1) | ✅ |
 | File compression, CMS signatures | [RFC 5655 §5.3, §9](https://www.rfc-editor.org/rfc/rfc5655#section-9) | ⬜ (out of scope: decompress / verify before parsing) |
-| Information Element type records | [RFC 5610 §3.9](https://www.rfc-editor.org/rfc/rfc5610#section-3.9) | ⬜ (planned, see below) |
+| Information Element type records, data type / semantics restrictions | [RFC 5610 §3.9, §3.10](https://www.rfc-editor.org/rfc/rfc5610#section-3.9) | ✅ |
 | Reverse Information Elements (PEN 29305) | [RFC 5103 §6.1](https://www.rfc-editor.org/rfc/rfc5103#section-6.1) | ✅ |
 | basicList | [RFC 6313 §4.5.1](https://www.rfc-editor.org/rfc/rfc6313#section-4.5.1) | ✅ |
 | subTemplateList | [RFC 6313 §4.5.2](https://www.rfc-editor.org/rfc/rfc6313#section-4.5.2) | ✅ |
@@ -93,14 +94,34 @@ All 502 Information Elements of the [IANA registry](https://www.iana.org/assignm
 
 The table is generated from the IANA registry with `make registry-update`. The weekly CI run fails when IANA assigns or changes an element, which is the signal to regenerate it.
 
-Values that cannot be decoded with their Information Element's type are kept as `FieldValue::Raw` instead of failing the whole Message. This covers enterprise-specific elements (their types are unknown), lengths not allowed for the type, invalid UTF-8, and lists referencing an unknown Template.
+Values that cannot be decoded with their Information Element's type are kept as `FieldValue::Raw` instead of failing the whole Message. This covers enterprise-specific elements whose type is unknown (see below), lengths not allowed for the type, invalid UTF-8, and lists referencing an unknown Template.
 
-**Planned: enterprise-specific Information Elements.** Two sources of type information will share one per-session table:
+### Enterprise-Specific Information Elements
 
-1. Definitions registered by the caller (e.g. from vendor documentation). They are the Collecting Process's "own internal definition" and always take precedence (RFC 5610 §3.9).
-2. [RFC 5610](https://www.rfc-editor.org/rfc/rfc5610) type records sent by the Exporter, under the RFC's rules: they never override internal definitions, conflicting records disable the element, invalid type/semantics combinations and names with NUL characters are ignored, and the table is bounded.
+Enterprise-specific (vendor) Information Elements are not in the IANA registry, so their fields are kept as `FieldValue::Raw` unless the decoder knows their type. Each `Decoder` keeps a table of definitions, filled from two sources:
 
-Caller-registered definitions come first because most vendors (none of the 13 vendor samples in the test suite send type records) document their elements out-of-band.
+1. **Registered by the caller**, e.g. from vendor documentation. They are the Collecting Process's "own internal definition": they apply to all Observation Domains, survive `Decoder::clear`, and always take precedence ([RFC 5610 §3.9](https://www.rfc-editor.org/rfc/rfc5610#section-3.9)).
+2. **Learned from [RFC 5610](https://www.rfc-editor.org/rfc/rfc5610) type records** sent by the Exporter: Options Data Records scoped by `privateEnterpriseNumber` and `informationElementId`, which describe an element's data type, semantics, units, range, name and description. They apply to the following Data Sets of the same Transport Session and Observation Domain.
+
+```rust
+use ipfix_parser::models::EnterpriseElement;
+use ipfix_parser::registry::{DataType, DataTypeSemantics};
+
+// From the vendor's documentation: its IANA Private Enterprise Number, and
+// the identifier, name and type of the element
+let vendor_pen = 12345;
+decoder.register_enterprise_element(
+    EnterpriseElement::new(vendor_pen, 1, "vendorRoundTripTime", DataType::Unsigned32)
+        .with_semantics(DataTypeSemantics::Quantity),
+)?;
+
+// Fields of that element now decode as FieldValue::Unsigned, and
+// decoder.field_name(domain, &field.specifier) returns its name
+```
+
+The example of [RFC 5610 Appendix A](https://www.rfc-editor.org/rfc/rfc5610#appendix-A) is reproduced as a unit test. Type records follow the RFC's rules: they never replace a registered definition or an IANA element, an element with conflicting type records is ignored, invalid data type / semantics combinations ([§3.10](https://www.rfc-editor.org/rfc/rfc5610#section-3.10)) and names with NUL characters are ignored, and the learned table is bounded (`DecoderConfig::max_enterprise_elements`). Registering an element with PEN 0 also lets you decode IANA elements assigned after this crate's registry snapshot.
+
+Most vendors document their elements out-of-band rather than sending type records (none of the 13 vendor samples in the test suite do), so registration is usually what makes their fields decodable.
 
 ## Usage
 

@@ -43,3 +43,37 @@ The IANA registry for this field is itself named "IPFIX Version Numbers", so eit
 ### Implementation
 
 The Rust field follows the definition list (`MessageHeader::version`), which is what the [RFC structures validation](README.md) compares against.
+
+## 2. Type Information Example: Field Length 65536
+
+**Affected Specification:** [RFC 5610](https://www.rfc-editor.org/rfc/rfc5610) (2009), Appendix A
+
+**Affected Structure:** Example Information Element Type Options Template (Figure 2)
+
+### Issue
+
+The last Field Specifier of the example Options Template, `informationElementName`, has a Field Length of **65536**. This value cannot be encoded: the Field Length is a 16-bit field, and variable-length Information Elements use the reserved value **65535** ([RFC 7011 Section 7](https://www.rfc-editor.org/rfc/rfc7011#section-7)).
+
+[Erratum 4731](https://www.rfc-editor.org/errata/eid4731) corrects the Length (26 → 30) and the Field Count (4 → 5) of this figure, but keeps the Field Length of 65536.
+
+**Current (with Erratum 4731):**
+```text
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       Field Length = 1        |0| inf.El.Name             341 |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Field Length = 65536      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**Proposed Correction:**
+```text
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       Field Length = 1        |0| inf.El.Name             341 |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Field Length = 65535      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+### Implementation
+
+`test_rfc5610_appendix_a_example` (`tests/unit/enterprise_elements.rs`) reproduces the example with Erratum 4731 and a Field Length of 65535.

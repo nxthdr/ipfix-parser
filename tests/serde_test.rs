@@ -92,3 +92,13 @@ fn test_structured_data_serde() {
         }],
     }));
 }
+
+#[test]
+fn test_enterprise_element_serde() {
+    use ipfix_parser::registry::{DataType, DataTypeSemantics};
+    let mut element = EnterpriseElement::new(9, 100, "vendorOctets", DataType::Unsigned64)
+        .with_semantics(DataTypeSemantics::DeltaCounter);
+    element.units = Some(1);
+    element.source = ElementSource::TypeRecord;
+    roundtrip(&element);
+}

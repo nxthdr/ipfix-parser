@@ -9,6 +9,10 @@ The Information Element table (`src/registry/information_elements.rs`) is genera
 3. If IANA added a new **abstract data type** or **data type semantics**, the generated file will not compile. Add the variant to `DataType` / `DataTypeSemantics` in `src/registry/mod.rs` (keeping the IANA registry order and values), decode it in `src/parsers/value.rs`, add a `FieldValue` variant if needed, and add a test in `tests/unit/data_types.rs`.
 4. Update the counts in the `README.md` "Information Elements" section and in `tests/specs/README.md`.
 
+## Enterprise-Specific Information Elements
+
+Enterprise-specific (vendor) element definitions live in the `Decoder` (`src/parsers/elements.rs`), never in the generated IANA table. Keep the RFC 5610 precedence: caller-registered definitions, then IANA, always win over type records sent by the Exporter. Vendor-specific definitions are not shipped in this crate: callers register the ones they need.
+
 ## Implementing a New Specification
 
 To implement a new IPFIX specification (RFC), follow these steps:

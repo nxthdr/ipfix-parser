@@ -17,6 +17,7 @@
 //!   a value below 4 is invalid.
 
 use super::decoder::{Template, TemplateCache};
+use super::elements::ElementTable;
 use super::error::Result;
 use super::Cursor;
 use crate::models::*;
@@ -25,6 +26,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 pub(crate) struct DecodeContext<'a> {
     pub(crate) templates: &'a TemplateCache,
+    pub(crate) elements: &'a ElementTable,
     pub(crate) observation_domain_id: u32,
     pub(crate) max_depth: usize,
 }
@@ -77,7 +79,7 @@ pub(crate) fn decode_value(
     depth: usize,
 ) -> FieldValue {
     let raw = || FieldValue::Raw(bytes.to_vec());
-    let Some(data_type) = specifier.information_element().map(|ie| ie.data_type) else {
+    let Some(data_type) = ctx.elements.data_type(ctx.observation_domain_id, specifier) else {
         return raw();
     };
     let len = bytes.len();

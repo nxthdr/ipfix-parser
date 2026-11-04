@@ -26,6 +26,46 @@ pub const MIN_DATA_SET_ID: u16 = 256;
 /// (RFC 5103 Section 6.1)
 pub const REVERSE_INFORMATION_ELEMENT_PEN: u32 = 29305;
 
+/// Information Elements of an Information Element type record
+/// (RFC 5610 Section 3.9, Table 4). Validated against the RFC by
+/// `make specs-validate`.
+pub mod type_records {
+    /// `informationElementId` (RFC 5477), a Scope Field
+    pub const INFORMATION_ELEMENT_ID: u16 = 303;
+    /// `privateEnterpriseNumber` (RFC 5610 Section 3.8), a Scope Field
+    pub const PRIVATE_ENTERPRISE_NUMBER: u16 = 346;
+    /// `informationElementDataType` (RFC 5610 Section 3.1)
+    pub const INFORMATION_ELEMENT_DATA_TYPE: u16 = 339;
+    /// `informationElementDescription` (RFC 5610 Section 3.2)
+    pub const INFORMATION_ELEMENT_DESCRIPTION: u16 = 340;
+    /// `informationElementName` (RFC 5610 Section 3.3)
+    pub const INFORMATION_ELEMENT_NAME: u16 = 341;
+    /// `informationElementRangeBegin` (RFC 5610 Section 3.4)
+    pub const INFORMATION_ELEMENT_RANGE_BEGIN: u16 = 342;
+    /// `informationElementRangeEnd` (RFC 5610 Section 3.5)
+    pub const INFORMATION_ELEMENT_RANGE_END: u16 = 343;
+    /// `informationElementSemantics` (RFC 5610 Section 3.6)
+    pub const INFORMATION_ELEMENT_SEMANTICS: u16 = 344;
+    /// `informationElementUnits` (RFC 5610 Section 3.7)
+    pub const INFORMATION_ELEMENT_UNITS: u16 = 345;
+
+    /// The Scope Fields that identify a type record
+    pub const SCOPE_ELEMENTS: [u16; 2] = [INFORMATION_ELEMENT_ID, PRIVATE_ENTERPRISE_NUMBER];
+
+    /// All Information Elements read from a type record
+    pub const ELEMENTS: [u16; 9] = [
+        INFORMATION_ELEMENT_ID,
+        PRIVATE_ENTERPRISE_NUMBER,
+        INFORMATION_ELEMENT_DATA_TYPE,
+        INFORMATION_ELEMENT_SEMANTICS,
+        INFORMATION_ELEMENT_UNITS,
+        INFORMATION_ELEMENT_RANGE_BEGIN,
+        INFORMATION_ELEMENT_RANGE_END,
+        INFORMATION_ELEMENT_NAME,
+        INFORMATION_ELEMENT_DESCRIPTION,
+    ];
+}
+
 /// IPFIX abstract data type - RFC 7012 Section 3.1
 ///
 /// IANA "IPFIX Information Element Data Types" registry. The discriminant is
@@ -88,6 +128,11 @@ impl DataType {
         DataType::SubTemplateMultiList,
         DataType::Unsigned256,
     ];
+
+    /// The data type with this IANA registry value
+    pub fn from_value(value: u8) -> Option<DataType> {
+        DataType::ALL.get(value as usize).copied()
+    }
 
     /// The IANA name of the data type (e.g. `unsigned32`)
     pub fn name(&self) -> &'static str {
@@ -180,6 +225,11 @@ impl DataTypeSemantics {
         DataTypeSemantics::SnmpCounter,
         DataTypeSemantics::SnmpGauge,
     ];
+
+    /// The semantics with this IANA registry value
+    pub fn from_value(value: u8) -> Option<DataTypeSemantics> {
+        DataTypeSemantics::ALL.get(value as usize).copied()
+    }
 
     /// The IANA name of the semantics (e.g. `deltaCounter`)
     pub fn name(&self) -> &'static str {
