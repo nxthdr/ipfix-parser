@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Weekly run so that new or changed IANA Information Elements are detected
+  # even without code changes (see the specs-validation job)
+  schedule:
+    - cron: '0 6 * * 1'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v6
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo index
+      uses: actions/cache@v6
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo build
+      uses: actions/cache@v6
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Run tests
+      run: cargo test --all-features
+  
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
+    
+    - name: Check formatting
+      run: cargo fmt -- --check
+  
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+  
+  doc:
+    name: Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Check documentation
+      run: cargo doc --no-deps --all-features
+      env:
+        RUSTDOCFLAGS: -D warnings
+  
+  specs-validation:
+    name: Specs Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v6
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo index
+      uses: actions/cache@v6
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo build
+      uses: actions/cache@v6
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    
+    # Only the RFCs are read from this cache: the IANA registries are always
+    # downloaded so that registry changes are detected
+    - name: Cache RFC documents
+      uses: actions/cache@v6
+      with:
+        path: tests/specs/cache
+        key: ${{ runner.os }}-ipfix-specs-${{ hashFiles('tests/specs/download.rs') }}
+        restore-keys: |
+          ${{ runner.os }}-ipfix-specs-
+    
+    - name: Run specs validation
+      run: cargo test --test specs_test -- --nocapture --ignored
+  
+  vendor-samples:
+    name: Vendor Samples
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache vendor samples
+      uses: actions/cache@v6
+      with:
+        path: tests/data/cache
+        key: ${{ runner.os }}-ipfix-vendors-${{ hashFiles('tests/integration_test.rs') }}
+    
+    - name: Run integration tests against vendor samples
+      run: cargo test --test integration_test -- --nocapture --ignored
+  
+  fuzz:
+    name: Fuzz (smoke)
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_single, fuzz_session, fuzz_structured]
+    
+    steps:
+    - uses: actions/checkout@v7
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@nightly
+    
+    - name: Install cargo-fuzz
+      uses: taiki-e/install-action@cargo-fuzz
+    
+    - name: Run ${{ matrix.target }}
+      run: cargo +nightly fuzz run --fuzz-dir tests/fuzz ${{ matrix.target }} -- -max_total_time=30 -rss_limit_mb=2048
