@@ -165,8 +165,14 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@nightly
     
+    # The @cargo-fuzz shorthand tag passes no tool name ("no tool specified")
+    # and installs nothing, so name the tool explicitly
     - name: Install cargo-fuzz
-      uses: taiki-e/install-action@cargo-fuzz
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-fuzz
     
+    # The prebuilt cargo-fuzz binary is a musl build and defaults to its own
+    # target, where AddressSanitizer is unavailable: pin the glibc target
     - name: Run ${{ matrix.target }}
-      run: cargo +nightly fuzz run --fuzz-dir tests/fuzz ${{ matrix.target }} -- -max_total_time=30 -rss_limit_mb=2048
+      run: cargo +nightly fuzz run --target x86_64-unknown-linux-gnu --fuzz-dir tests/fuzz ${{ matrix.target }} -- -max_total_time=30 -rss_limit_mb=2048
